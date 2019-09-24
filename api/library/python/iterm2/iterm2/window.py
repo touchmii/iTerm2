@@ -29,7 +29,7 @@ class GetPropertyException(Exception):
 class Window:
     """Represents a terminal window.
 
-    Do not create this yourself. Instead, use :class:`~iterm2.app.App`.
+    Do not create an instance of `Window` by calling the initializer yourself. To get a reference to an existing window, use :class:`~iterm2.app.App` and query its `windows` property. To create a new window, use :meth:`async_create`.
     """
     @staticmethod
     async def async_create(
@@ -146,6 +146,13 @@ class Window:
         for tab in self.__tabs:
             session += tab.pretty_str(indent=indent + "  ")
         return session
+
+    @property
+    def window_number(self) -> int:
+        """
+        :returns: The window's number. When less than 10, this is the number part of the shortcut to switch to the window.
+        """
+        return self.__number
 
     @property
     def window_id(self) -> str:
@@ -409,7 +416,7 @@ class Window:
 
         See the Scripting Fundamentals documentation for more information on user-defined variables.
 
-        :param name: The variable's name.
+        :param name: The variable's name. Must begin with `user.`.
         :param value: The new value to assign.
 
         :throws: :class:`RPCException` if something goes wrong.

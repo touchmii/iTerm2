@@ -47,6 +47,7 @@ enum {
 
     // Warn when quitting
     IBOutlet id _promptOnQuit;
+    IBOutlet NSButton *_evenIfThereAreNoWindows;
 
     // Instant replay memory usage.
     IBOutlet NSTextField *_irMemory;
@@ -113,6 +114,7 @@ enum {
     IBOutlet NSButton *_autoHideTmuxClientSession;
     
     IBOutlet NSButton *_useTmuxProfile;
+    IBOutlet NSButton *_useTmuxStatusBar;
 
     IBOutlet NSTabView *_tabView;
 
@@ -191,8 +193,16 @@ enum {
             relatedView:nil
                    type:kPreferenceInfoTypeCheckbox];
 
-    [self defineControl:_promptOnQuit
-                    key:kPreferenceKeyPromptOnQuit
+    info = [self defineControl:_promptOnQuit
+                           key:kPreferenceKeyPromptOnQuit
+                   relatedView:nil
+                          type:kPreferenceInfoTypeCheckbox];
+    info.onChange = ^{
+        [weakSelf updateEnabledState];
+    };
+
+    [self defineControl:_evenIfThereAreNoWindows
+                    key:kPreferenceKeyPromptOnQuitEvenIfThereAreNoWindows
             relatedView:nil
                    type:kPreferenceInfoTypeCheckbox];
 
@@ -421,6 +431,16 @@ enum {
                     key:kPreferenceKeyUseTmuxProfile
             relatedView:nil
                    type:kPreferenceInfoTypeCheckbox];
+    [self defineControl:_useTmuxStatusBar
+                    key:kPreferenceKeyUseTmuxStatusBar
+            relatedView:nil
+                   type:kPreferenceInfoTypeCheckbox];
+    [self updateEnabledState];
+}
+
+- (void)updateEnabledState {
+    [super updateEnabledState];
+    _evenIfThereAreNoWindows.enabled = [self boolForKey:kPreferenceKeyPromptOnQuit];
 }
 
 - (void)updateAdvancedGPUEnabled {

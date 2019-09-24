@@ -11,9 +11,9 @@
 #import "TaskNotifier.h"
 #import "iTermAdvancedSettingsModel.h"
 #import "iTermLSOF.h"
+#import "iTermOpenDirectory.h"
 #import "iTermOrphanServerAdopter.h"
 #import "NSDictionary+iTerm.h"
-#import <OpenDirectory/OpenDirectory.h>
 
 #include "iTermFileDescriptorClient.h"
 #include "iTermFileDescriptorServer.h"
@@ -133,50 +133,6 @@ static void HandleSigChld(int n) {
     BOOL _haveBumpedProcessCache;
 }
 
-// This is (I hope) the equivalent of the command "dscl . read /Users/$USER UserShell", which
-// appears to be how you get the user's shell nowadays. Returns nil if it can't be gotten.
-+ (NSString *)userShell {
-    if (![iTermAdvancedSettingsModel useOpenDirectory]) {
-        return nil;
-    }
-
-    DLog(@"Trying to figure out the user's shell.");
-    NSError *error = nil;
-    ODNode *node = [ODNode nodeWithSession:[ODSession defaultSession]
-                                      type:kODNodeTypeLocalNodes
-                                     error:&error];
-    if (!node) {
-        DLog(@"Failed to get node for default session: %@", error);
-        return nil;
-    }
-    ODQuery *query = [ODQuery queryWithNode:node
-                             forRecordTypes:kODRecordTypeUsers
-                                  attribute:kODAttributeTypeRecordName
-                                  matchType:kODMatchEqualTo
-                                queryValues:NSUserName()
-                           returnAttributes:kODAttributeTypeStandardOnly
-                             maximumResults:0
-                                      error:&error];
-    if (!query) {
-        DLog(@"Failed to query for record matching user name: %@", error);
-        return nil;
-    }
-    DLog(@"Performing synchronous request.");
-    NSArray *result = [query resultsAllowingPartial:NO error:nil];
-    DLog(@"Got %lu results", (unsigned long)result.count);
-    ODRecord *record = [result firstObject];
-    DLog(@"Record is %@", record);
-    NSArray *shells = [record valuesForAttribute:kODAttributeTypeUserShell error:&error];
-    if (!shells) {
-        DLog(@"Error getting shells: %@", error);
-        return nil;
-    }
-    DLog(@"Result has these shells: %@", shells);
-    NSString *shell = [shells firstObject];
-    DLog(@"Returning %@", shell);
-    return shell;
-}
-
 - (instancetype)init {
     self = [super init];
     if (self) {
@@ -207,6 +163,9 @@ static void HandleSigChld(int n) {
         // TODO: Don't want to do this when Sparkle is upgrading.
         killpg(_serverChildPid, SIGHUP);
     }
+    if (_tmuxClientProcessID) {
+        [[iTermProcessCache sharedInstance] unregisterTrackedPID:_tmuxClientProcessID.intValue];
+    }
 
     [self closeFileDescriptor];
     [_logHandle closeFile];
@@ -217,8 +176,8 @@ static void HandleSigChld(int n) {
 }
 
 - (NSString *)description {
-    return [NSString stringWithFormat:@"PTYTask(child pid %d, server-child pid %d, filedesc %d)",
-              _serverChildPid, _serverPid, fd];
+    return [NSString stringWithFormat:@"<%@: %p child pid=%d server-child pid=%d, filedesc=%d tmux pid=%@>",
+            NSStringFromClass([self class]), self, _serverChildPid, _serverPid, fd, _tmuxClientProcessID];
 }
 
 #pragma mark - APIs
@@ -370,9 +329,24 @@ static void HandleSigChld(int n) {
     }
 }
 
+- (void)setTmuxClientProcessID:(NSNumber *)tmuxClientProcessID {
+    if ([NSObject object:tmuxClientProcessID isEqualToObject:_tmuxClientProcessID]) {
+        return;
+    }
+    DLog(@"Set tmux client process ID for %@ to %@", self, tmuxClientProcessID);
+    if (_tmuxClientProcessID) {
+        [[iTermProcessCache sharedInstance] unregisterTrackedPID:_tmuxClientProcessID.intValue];
+    }
+    if (tmuxClientProcessID) {
+        [[iTermProcessCache sharedInstance] registerTrackedPID:tmuxClientProcessID.intValue];
+    }
+    _tmuxClientProcessID = tmuxClientProcessID;
+}
+
 - (void)fetchProcessInfoForCurrentJobWithCompletion:(void (^)(iTermProcessInfo *))completion {
-    const pid_t pid = self.pid;
+    const pid_t pid = self.tmuxClientProcessID ? self.tmuxClientProcessID.intValue : self.pid;
     iTermProcessInfo *info = [[iTermProcessCache sharedInstance] deepestForegroundJobForPid:pid];
+    DLog(@"%@ fetch process info for %@", self, @(pid));
     if (info.name) {
         DLog(@"Return name synchronously");
         completion(info);
@@ -388,7 +362,6 @@ static void HandleSigChld(int n) {
     if (_haveBumpedProcessCache) {
         DLog(@"Already bumped process cache");
         [[iTermProcessCache sharedInstance] setNeedsUpdate:YES];
-        completion(nil);
         return;
     }
     _haveBumpedProcessCache = YES;
@@ -440,6 +413,9 @@ static void HandleSigChld(int n) {
     } else if (_childPid >= 0) {
         [[iTermProcessCache sharedInstance] unregisterTrackedPID:_childPid];
         kill(_childPid, signo);
+    }
+    if (_tmuxClientProcessID) {
+        [[iTermProcessCache sharedInstance] unregisterTrackedPID:_tmuxClientProcessID.intValue];
     }
 }
 
@@ -744,7 +720,7 @@ static void HandleSigChld(int n) {
 }
 
 - (NSDictionary *)environmentBySettingShell:(NSDictionary *)originalEnvironment {
-    NSString *shell = [PTYTask userShell];
+    NSString *shell = [iTermOpenDirectory userShell];
     if (!shell) {
         return originalEnvironment;
     }
@@ -941,7 +917,7 @@ static void HandleSigChld(int n) {
     DLog(@"reallyLaunchWithPath:%@ args:%@ env:%@ width:%@ height:%@ isUTF8:%@ autologPath:%@ synchronous:%@",
          progpath, args, env, @(width), @(height), @(isUTF8), autologPath, @(synchronous));
     if (autologPath) {
-        [self startLoggingToFileWithPath:autologPath shouldAppend:NO];
+        [self startLoggingToFileWithPath:autologPath shouldAppend:[iTermAdvancedSettingsModel autologAppends]];
     }
 
     iTermTTYState ttyState;

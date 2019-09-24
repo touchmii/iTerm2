@@ -40,7 +40,14 @@ static NSDate* lastResizeDate_;
 
 NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewWasSelectedForInspectionNotification";
 
+@interface iTermMTKView : MTKView
+@end
+
+@implementation iTermMTKView
+@end
+
 @interface iTermHoverContainerView : NSView
+@property (nonatomic, copy) NSString *url;
 @end
 
 @implementation iTermHoverContainerView
@@ -98,7 +105,7 @@ NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewW
     BOOL _showBottomStatusBar;
     SessionTitleView *_title;
 
-    NSView *_hoverURLView;
+    iTermHoverContainerView *_hoverURLView;
     NSTextField *_hoverURLTextField;
 
     BOOL _useMetal;
@@ -284,6 +291,21 @@ NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewW
     return size;
 }
 
+- (void)loadTemporaryStatusBarFindDriverWithStatusBarViewController:(iTermStatusBarViewController *)statusBarViewController {
+    _findDriverType = iTermSessionViewFindDriverTemporaryStatusBar;
+    NSDictionary *knobs = @{ iTermStatusBarPriorityKey: @(INFINITY),
+                             iTermStatusBarSearchComponentIsTemporaryKey: @YES };
+    NSDictionary *configuration = @{ iTermStatusBarComponentConfigurationKeyKnobValues: knobs};
+    iTermStatusBarSearchFieldComponent *component =
+    [[iTermStatusBarSearchFieldComponent alloc] initWithConfiguration:configuration
+                                                                scope:self.delegate.sessionViewScope];
+    _temporaryStatusBarFindDriver = [[iTermFindDriver alloc] initWithViewController:component.statusBarComponentSearchViewController];
+    _temporaryStatusBarFindDriver.delegate = _dropDownFindDriver.delegate;
+    component.statusBarComponentSearchViewController.driver = _temporaryStatusBarFindDriver;
+    statusBarViewController.temporaryLeftComponent = component;
+    [_temporaryStatusBarFindDriver open];
+}
+
 - (void)showFindUI {
     iTermStatusBarViewController *statusBarViewController = self.delegate.sessionViewStatusBarViewController;
     if (_findDriverType == iTermSessionViewFindDriverPermanentStatusBar) {
@@ -291,23 +313,18 @@ NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewW
     } else if (self.findViewIsHidden) {
         if (statusBarViewController) {
             if (!statusBarViewController.temporaryLeftComponent) {
-                _findDriverType = iTermSessionViewFindDriverTemporaryStatusBar;
-                NSDictionary *knobs = @{ iTermStatusBarPriorityKey: @(INFINITY),
-                                         iTermStatusBarSearchComponentIsTemporaryKey: @YES };
-                NSDictionary *configuration = @{ iTermStatusBarComponentConfigurationKeyKnobValues: knobs};
-                iTermStatusBarSearchFieldComponent *component =
-                    [[iTermStatusBarSearchFieldComponent alloc] initWithConfiguration:configuration
-                                                                                scope:self.delegate.sessionViewScope];
-                _temporaryStatusBarFindDriver = [[iTermFindDriver alloc] initWithViewController:component.statusBarComponentSearchViewController];
-                _temporaryStatusBarFindDriver.delegate = _dropDownFindDriver.delegate;
-                component.statusBarComponentSearchViewController.driver = _temporaryStatusBarFindDriver;
-                statusBarViewController.temporaryLeftComponent = component;
-                [_temporaryStatusBarFindDriver open];
+                [self loadTemporaryStatusBarFindDriverWithStatusBarViewController:statusBarViewController];
             }
         } else {
             _findDriverType = iTermSessionViewFindDriverDropDown;
             [_temporaryStatusBarFindDriver open];
         }
+    } else if (self.findDriver == nil) {
+        assert(statusBarViewController);
+        assert(statusBarViewController.temporaryLeftComponent);
+        _temporaryStatusBarFindDriver = [[iTermFindDriver alloc] initWithViewController:statusBarViewController.temporaryLeftComponent.statusBarComponentSearchViewController];
+        _temporaryStatusBarFindDriver.delegate = _dropDownFindDriver.delegate;
+        [_temporaryStatusBarFindDriver open];
     }
     [self.findDriver makeVisible];
 }
@@ -387,8 +404,8 @@ NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewW
         [self removeMetalView];
     }
     // Allocate a new metal view
-    _metalView = [[MTKView alloc] initWithFrame:_scrollview.contentView.frame
-                                         device:[self metalDevice]];
+    _metalView = [[iTermMTKView alloc] initWithFrame:_scrollview.contentView.frame
+                                              device:[self metalDevice]];
 #if ENABLE_TRANSPARENT_METAL_WINDOWS
     if (iTermTextIsMonochrome()) {
         _metalView.layer.opaque = NO;
@@ -398,7 +415,9 @@ NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewW
 #else
     _metalView.layer.opaque = YES;
 #endif
-    _metalView.colorspace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    _metalView.colorspace = colorSpace;
+    CFRelease(colorSpace);
     
     // Tell the clip view about it so it can ask the metalview to draw itself on scroll.
     _metalClipView.metalView = _metalView;
@@ -951,12 +970,13 @@ NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewW
     return _hoverURLView != nil;
 }
 
-- (void)setHoverURL:(NSString *)url {
+- (BOOL)setHoverURL:(NSString *)url {
+    if ([NSObject object:url isEqualToObject:_hoverURLView.url]) {
+        return NO;
+    }
     if (_hoverURLView == nil) {
-        if (url == nil) {
-            return;
-        }
         _hoverURLView = [[iTermHoverContainerView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
+        _hoverURLView.url = url;
         _hoverURLTextField = [[NSTextField alloc] initWithFrame:_hoverURLView.bounds];
         [_hoverURLTextField setDrawsBackground:NO];
         [_hoverURLTextField setBordered:NO];
@@ -978,10 +998,12 @@ NSString *const SessionViewWasSelectedForInspectionNotification = @"SessionViewW
         [_delegate sessionViewDidChangeHoverURLVisible:NO];
     } else {
         // _hoverurlView != nil && url != nil
+        _hoverURLView.url = url;
         [_hoverURLTextField setStringValue:url];
     }
 
     [self updateLayout];
+    return YES;
 }
 
 - (void)viewDidMoveToWindow {

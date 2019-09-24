@@ -21,7 +21,7 @@ This script shows a working example:
         @iterm2.RPC
         async def clear_all_sessions():
             code = b'\x1b' + b']1337;ClearScrollback' + b'\x07'
-            for window in app.terminal_windows:
+            for window in app.windows:
                 for tab in window.tabs:
                     for session in tab.sessions:
                         await session.async_inject(code)
@@ -209,13 +209,13 @@ example:
     @iterm2.RPC
     async def times(a, b):
         return a * b
-    await add.async_register(connection)
+    await times.async_register(connection)
 
     @iterm2.RPC
     async def show(s):
-        session = app.current_terminal_window.current_tab.current_session
+        session = app.current_window.current_tab.current_session
         await session.async_inject(bytes(str(s), encoding="utf-8"))
-    await add.async_register(connection)
+    await show.async_register(connection)
 
 
 To compute 1+2*3 and inject it into the current session, use this invocation:

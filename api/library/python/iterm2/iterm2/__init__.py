@@ -19,7 +19,7 @@ from iterm2.customcontrol import CustomControlSequenceMonitor
 
 from iterm2.focus import FocusMonitor, FocusUpdateApplicationActive, FocusUpdateWindowChanged, FocusUpdateSelectedTabChanged, FocusUpdateActiveSessionChanged, FocusUpdate, FocusMonitor
 
-from iterm2.lifecycle import SessionTerminationMonitor, LayoutChangeMonitor, NewSessionMonitor
+from iterm2.lifecycle import EachSessionOnceMonitor, SessionTerminationMonitor, LayoutChangeMonitor, NewSessionMonitor
 
 from iterm2.mainmenu import MenuItemState, MainMenu, MenuItemException
 
@@ -43,7 +43,7 @@ from iterm2.statusbar import StatusBarComponent, CheckboxKnob, StringKnob, Posit
 
 from iterm2.transaction import Transaction
 
-from iterm2.tab import Tab
+from iterm2.tab import Tab, NavigationDirection
 
 from iterm2.tmux import TmuxException, TmuxConnection, async_get_tmux_connections, async_get_tmux_connection_by_connection_id
 

@@ -15,14 +15,14 @@ NS_ASSUME_NONNULL_BEGIN
 @interface iTermTmuxOptionMonitor : NSObject
 
 @property (nonatomic, weak) TmuxGateway *gateway;
-@property (nonatomic, strong) iTermVariableScope *scope;
+@property (nullable, nonatomic, strong) iTermVariableScope *scope;
 
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithGateway:(TmuxGateway *)gateway
                           scope:(iTermVariableScope *)scope
                          format:(NSString *)format
                          target:(NSString *)tmuxTarget
-                   variableName:(NSString *)variableName
+                   variableName:(nullable NSString *)variableName
                           block:(void (^ _Nullable)(NSString *))block NS_DESIGNATED_INITIALIZER;
 
 - (void)updateOnce;

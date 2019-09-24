@@ -51,6 +51,7 @@ PSMTabBarControlOptionKey PSMTabBarControlOptionDimmingAmount = @"PSMTabBarContr
 PSMTabBarControlOptionKey PSMTabBarControlOptionMinimalStyleTreatLeftInsetAsPartOfFirstTab = @"PSMTabBarControlOptionMinimalStyleTreatLeftInsetAsPartOfFirstTab";
 PSMTabBarControlOptionKey PSMTabBarControlOptionMinimumSpaceForLabel =
     @"PSMTabBarControlOptionMinimumSpaceForLabel";
+PSMTabBarControlOptionKey PSMTabBarControlOptionHighVisibility = @"PSMTabBarControlOptionHighVisibility";
 
 @interface PSMTabBarControl ()<PSMTabBarControlProtocol>
 @end
@@ -1390,6 +1391,12 @@ PSMTabBarControlOptionKey PSMTabBarControlOptionMinimumSpaceForLabel =
                 [[self superview] setNeedsDisplay:YES];
             }
         }
+        return;
+    }
+
+    if ([self.delegate respondsToSelector:@selector(tabViewShouldDragWindow:)] &&
+        [self.delegate tabViewShouldDragWindow:_tabView]) {
+        [self.window performWindowDragWithEvent:theEvent];
         return;
     }
 

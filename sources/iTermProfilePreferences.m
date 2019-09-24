@@ -432,7 +432,7 @@ NSString *const kProfilePreferenceInitialDirectoryAdvancedValue = @"Advanced";
                   KEY_HOTKEY_ACTIVATE_WITH_MODIFIER: @NO,
                   KEY_HOTKEY_ALTERNATE_SHORTCUTS: @[],
                   KEY_SESSION_HOTKEY: @{},
-                  KEY_TITLE_COMPONENTS : @(iTermTitleComponentsSessionName),
+                  KEY_TITLE_COMPONENTS : @(iTermTitleComponentsJob),
                   KEY_TITLE_FUNC: [NSNull null],
                   KEY_SHOW_STATUS_BAR: @NO,
                   KEY_STATUS_BAR_LAYOUT: @{},
@@ -710,6 +710,13 @@ NSString *const kProfilePreferenceInitialDirectoryAdvancedValue = @"Advanced";
     if (profile[key]) {
         // A value is explicitly set. No migration needed.
         return profile[key];
+    }
+
+    // Default to showing session name in tmux profile for backward compatibility with 3.3.0-3.3.2 and
+    // earlier (issue 8255).
+    NSString *name = profile[KEY_NAME];
+    if ([name isEqualToString:@"tmux"]) {
+        return @(iTermTitleComponentsSessionName);
     }
 
     // Respect any existing now-deprecated settings.

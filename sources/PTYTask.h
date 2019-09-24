@@ -60,8 +60,7 @@ extern NSString *kCoprocessStatusChangeNotification;
 @property(atomic, readonly) BOOL hasCoprocess;
 @property(nonatomic, readonly) BOOL passwordInput;
 @property(nonatomic) unichar pendingHighSurrogate;
-
-+ (NSString *)userShell;
+@property(nonatomic, copy) NSNumber *tmuxClientProcessID;
 
 - (instancetype)init;
 

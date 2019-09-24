@@ -385,6 +385,7 @@ static const int kDragThreshold = 3;
     [_keyboardHandler release];
     _urlActionHelper.delegate = nil;
     [_urlActionHelper release];
+    [_imageBeingClickedOn release];
     [super dealloc];
 }
 
@@ -617,12 +618,22 @@ static const int kDragThreshold = 3;
     _markedTextAttributes = [attr retain];
 }
 
-- (void)updateScrollerForBackgroundColor
-{
+- (void)updateScrollerForBackgroundColor {
     PTYScroller *scroller = [_delegate textViewVerticalScroller];
     NSColor *backgroundColor = [_colorMap colorForKey:kColorMapBackground];
-    scroller.knobStyle =
-        [backgroundColor isDark] ? NSScrollerKnobStyleLight : NSScrollerKnobStyleDefault;
+    const BOOL isDark = [backgroundColor isDark];
+    scroller.knobStyle = isDark ? NSScrollerKnobStyleLight : NSScrollerKnobStyleDefault;
+
+    // The knob style is used only for overlay scrollers. In the minimal theme, the window decorations'
+    // colors are based on the terminal background color. That means the appearance must be changed to get
+    // legacy scrollbars to change color.
+    if (@available(macOS 10.14, *)) {
+        if ([self.delegate textViewTerminalBackgroundColorDeterminesWindowDecorationColor]) {
+            scroller.appearance = isDark ? [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua] : [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+        } else {
+            scroller.appearance = nil;
+        }
+    }
 }
 
 - (NSFont *)font {
@@ -1457,6 +1468,7 @@ static const int kDragThreshold = 3;
                     [_delegate writeTask:stringToSend];
                 }
             }
+            [self deselect];
         }
     } else if (![self reportMouseEvent:event]) {
         [super scrollWheel:event];
@@ -1468,13 +1480,14 @@ static const int kDragThreshold = 3;
 }
 
 // Reset underlined chars indicating cmd-clickable url.
-- (void)removeUnderline {
+- (BOOL)removeUnderline {
     if (![self hasUnderline]) {
-        return;
+        return NO;
     }
     _drawingHelper.underlinedRange =
         VT100GridAbsWindowedRangeMake(VT100GridAbsCoordRangeMake(-1, -1, -1, -1), 0, 0);
     [self setNeedsDisplay:YES];  // It would be better to just display the underlined/formerly underlined area.
+    return YES;
 }
 
 - (void)flagsChanged:(NSEvent *)theEvent {
@@ -1557,6 +1570,7 @@ static const int kDragThreshold = 3;
         DLog(@"Trying to steal key focus");
         if ([self stealKeyFocus]) {
             if (_keyFocusStolenCount == 0) {
+                [[self window] makeFirstResponder:self];
                 [[iTermSecureKeyboardEntryController sharedInstance] didStealFocus];
             }
             ++_keyFocusStolenCount;
@@ -1755,10 +1769,17 @@ static const int kDragThreshold = 3;
         return NO;
     }
 
+    iTermImageInfo *const imageBeingClickedOn = [self imageInfoAtCoord:VT100GridCoordMake(x, y)];
+    const BOOL mouseDownOnSelection = [_selection containsCoord:VT100GridCoordMake(x, y)];
+
     if (!_mouseDownWasFirstMouse) {
         // Lock auto scrolling while the user is selecting text, but not for a first-mouse event
         // because drags are ignored for those.
         [(PTYScroller*)([[self enclosingScrollView] verticalScroller]) setUserScroll:YES];
+
+        if (event.clickCount == 1 && !cmdPressed && !shiftPressed && !imageBeingClickedOn && !mouseDownOnSelection) {
+            [_selection clearSelection];
+        }
     }
 
     [_mouseDownEvent autorelease];
@@ -1783,10 +1804,12 @@ static const int kDragThreshold = 3;
             mode = kiTermSelectionModeCharacter;
         }
 
-        if ((_imageBeingClickedOn = [self imageInfoAtCoord:VT100GridCoordMake(x, y)])) {
+        if (imageBeingClickedOn) {
+            [_imageBeingClickedOn autorelease];
+            _imageBeingClickedOn = [imageBeingClickedOn retain];
             _mouseDownOnImage = YES;
             _selection.appending = NO;
-        } else if ([_selection containsCoord:VT100GridCoordMake(x, y)]) {
+        } else if (mouseDownOnSelection) {
             // not holding down shift key but there is an existing selection.
             // Possibly a drag coming up (if a cmd-drag follows)
             DLog(@"mouse down on selection, returning");
@@ -1945,6 +1968,7 @@ static double EuclideanDistance(NSPoint p1, NSPoint p2) {
         [[self window] makeFirstResponder:self];
     }
 
+    const BOOL wasSelecting = _selection.live;
     [_selection endLiveSelection];
     if (isUnshiftedSingleClick) {
         // Just a click in the window.
@@ -1979,9 +2003,6 @@ static double EuclideanDistance(NSPoint p1, NSPoint p2) {
             }
         }
 
-        if (!_selection.appending) {
-            [_selection clearSelection];
-        }
         if (willFollowLink) {
             [_urlActionHelper openTargetWithEvent:event inBackground:altPressed];
         } else {
@@ -2013,8 +2034,13 @@ static double EuclideanDistance(NSPoint p1, NSPoint p2) {
         [_findOnPageHelper resetFindCursor];
     }
 
-    DLog(@"Has selection=%@, delegate=%@", @([_selection hasSelection]), _delegate);
-    if ([_selection hasSelection] && _delegate) {
+    DLog(@"Has selection=%@, delegate=%@ wasSelecting=%@", @([_selection hasSelection]), _delegate, @(wasSelecting));
+    if ([_selection hasSelection] && event.clickCount == 1 && !wasSelecting) {
+        // Click on selection. When the mouse-down was on the selection we delay clearing it until
+        // mouse-up so you have the chance to drag it.
+        [_selection clearSelection];
+    }
+    if ([_selection hasSelection] && _delegate && wasSelecting) {
         // if we want to copy our selection, do so
         DLog(@"selection copies text=%@", @([iTermPreferences boolForKey:kPreferenceKeySelectionCopiesText]));
         if ([iTermPreferences boolForKey:kPreferenceKeySelectionCopiesText]) {
@@ -2852,13 +2878,15 @@ static double EuclideanDistance(NSPoint p1, NSPoint p2) {
     [self refresh];
 
     DLog(@"-[PTYTextView copy:] called");
+    DLog(@"%@", [NSThread callStackSymbols]);
+
     NSString *copyString = [self selectedText];
 
     if ([iTermAdvancedSettingsModel disallowCopyEmptyString] && copyString.length == 0) {
         DLog(@"Disallow copying empty string");
         return;
     }
-    DLog(@"Have selected text of length %d. selection=%@", (int)[copyString length], _selection);
+    DLog(@"Have selected text: “%@”. selection=%@", copyString, _selection);
     if (copyString) {
         NSPasteboard *pboard = [NSPasteboard generalPasteboard];
         [pboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:self];
@@ -4071,6 +4099,13 @@ static double EuclideanDistance(NSPoint p1, NSPoint p2) {
                        action:@selector(toggleBroadcastingInput:)
                 keyEquivalent:@""];
     [[theMenu itemAtIndex:[theMenu numberOfItems] - 1] setTarget:self];
+
+    if ([_delegate textViewHasCoprocess]) {
+        [theMenu addItemWithTitle:@"Stop Coprocess"
+                           action:@selector(textViewStopCoprocess)
+                    keyEquivalent:@""];
+        [[theMenu itemAtIndex:[theMenu numberOfItems] - 1] setTarget:self.delegate];
+    }
 
     // Separator
     [theMenu addItem:[NSMenuItem separatorItem]];

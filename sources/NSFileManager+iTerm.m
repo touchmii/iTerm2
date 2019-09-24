@@ -122,7 +122,8 @@ NSString * const DirectoryLocationDomain = @"DirectoryLocationDomain";
                                                   inDomain:NSUserDomainMask
                                        appendPathComponent:nil
                                                      error:&error];
-    NSString *nospaces = [realAppSupport stringByReplacingOccurrencesOfString:@"Application Support" withString:@"ApplicationSupport"];
+    NSString *nospaces = [realAppSupport stringByReplacingOccurrencesOfString:@"Application Support"
+                                                                   withString:[iTermAdvancedSettingsModel spacelessApplicationSupport]];
     NSString *executableName =
         [[[NSBundle mainBundle] infoDictionary] objectForKey:(id)kCFBundleExecutableKey];
     return [nospaces stringByAppendingPathComponent:executableName];
@@ -147,8 +148,14 @@ NSString * const DirectoryLocationDomain = @"DirectoryLocationDomain";
                                                   inDomain:NSUserDomainMask
                                        appendPathComponent:nil
                                                      error:&error];
-    NSString *nospaces = [realAppSupport stringByReplacingOccurrencesOfString:@"Application Support" withString:@"ApplicationSupport"];
-    [[NSFileManager defaultManager] createSymbolicLinkAtPath:nospaces withDestinationPath:realAppSupport error:nil];
+    NSString *linkName = [iTermAdvancedSettingsModel spacelessApplicationSupport];
+    NSString *nospaces = [realAppSupport stringByReplacingOccurrencesOfString:@"Application Support"
+                                                                   withString:linkName];
+    if (linkName.length) {
+        [[NSFileManager defaultManager] createSymbolicLinkAtPath:nospaces withDestinationPath:realAppSupport error:nil];
+    } else {
+        linkName = @"_ApplicationSupport";
+    }
 
     NSString *executableName =
         [[[NSBundle mainBundle] infoDictionary] objectForKey:(id)kCFBundleExecutableKey];
@@ -270,21 +277,33 @@ NSString * const DirectoryLocationDomain = @"DirectoryLocationDomain";
     return NO;
 }
 
-- (BOOL)fileExistsAtPathLocally:(NSString *)filename
-         additionalNetworkPaths:(NSArray<NSString *> *)additionalNetworkPaths {
+- (BOOL)fileIsLocal:(NSString *)filename
+additionalNetworkPaths:(NSArray<NSString *> *)additionalNetworkPaths {
+    if ([iTermAdvancedSettingsModel enableSemanticHistoryOnNetworkMounts]) {
+        DLog(@"** Skipping network-mount check because the advanced pref is on!!! **");
+        return YES;
+    }
     if ([self fileHasForbiddenPrefix:filename additionalNetworkPaths:additionalNetworkPaths]) {
         return NO;
     }
 
-    BOOL ok;
     struct statfs buf;
-    int rc = statfs([filename UTF8String], &buf);
-    if (rc != 0 || (buf.f_flags & MNT_LOCAL)) {
-        ok = [self fileExistsAtPath:filename];
-    } else {
-        ok = NO;
+    const int rc = statfs([filename UTF8String], &buf);
+    if (rc != 0) {
+        return YES;
     }
-    return ok;
+    if (buf.f_flags & MNT_LOCAL) {
+        return YES;
+    }
+    return NO;
+}
+
+- (BOOL)fileExistsAtPathLocally:(NSString *)filename
+         additionalNetworkPaths:(NSArray<NSString *> *)additionalNetworkPaths {
+    if (![self fileIsLocal:filename additionalNetworkPaths:additionalNetworkPaths]) {
+        return NO;
+    }
+    return [self fileExistsAtPath:filename];
 }
 
 - (BOOL)itemIsDirectory:(NSString *)path {

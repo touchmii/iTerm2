@@ -12,6 +12,7 @@
 #import "iTermPopupWindowController.h"
 #import "iTermSessionNameController.h"
 
+#import "GPBEnumArray+iTerm.h"
 #import "LineBuffer.h"
 #import "PTYTask.h"
 #import "PTYTextView.h"
@@ -397,7 +398,7 @@ typedef enum {
 // Has this session's bookmark been divorced from the profile in the ProfileModel? Changes
 // in this bookmark may happen independently of the persistent bookmark.
 // You should usually not assign to this; instead use divorceAddressBookEntryFromPreferences.
-@property(nonatomic, assign) BOOL isDivorced;
+@property(nonatomic, assign, readonly) BOOL isDivorced;
 
 // Ignore resize notifications. This would be set because the session's size mustn't be changed
 // due to temporary changes in the window size, as code later on may need to know the session's
@@ -467,6 +468,8 @@ typedef enum {
 // shell integration is on). If that can't be done then the current local working directory with
 // symlinks resolved is returned.
 @property(nonatomic, readonly) NSString *currentLocalWorkingDirectory;
+// A more resilient version of the above. If the current directory cannot be determined it uses the initial directory. This allows the creation of session in succession with proper pwd recycling behavior.
+@property(nonatomic, readonly) NSString *currentLocalWorkingDirectoryOrInitialDirectory;
 
 // A UUID that uniquely identifies this session.
 // Used to link serialized data back to a restored session (e.g., which session
@@ -505,6 +508,9 @@ typedef enum {
 @property(nonatomic, readonly) BOOL canOpenPasswordManager;
 @property(nonatomic) BOOL shortLivedSingleUse;
 @property(nonatomic, retain) NSMutableDictionary<NSString *, NSString *> *hostnameToShell;  // example.com -> fish
+@property(nonatomic, readonly) NSString *sessionId;
+@property(nonatomic, retain) NSNumber *cursorTypeOverride;
+@property(nonatomic, readonly) NSDictionary *environment;
 
 #pragma mark - methods
 
@@ -597,6 +603,8 @@ typedef enum {
 // shared profiles and merged, updating this object's addressBookEntry and
 // overriddenFields.
 - (BOOL)reloadProfile;
+
+- (void)setIsDivorced:(BOOL)isDivorced withDecree:(NSString *)decree;
 
 - (BOOL)shouldSendEscPrefixForModifier:(unsigned int)modmask;
 
@@ -812,6 +820,7 @@ typedef enum {
 - (void)applyAction:(iTermAction *)action;
 - (void)didUseShellIntegration;
 - (BOOL)copyModeConsumesEvent:(NSEvent *)event;
+- (Profile *)profileForSplit;
 
 #pragma mark - API
 

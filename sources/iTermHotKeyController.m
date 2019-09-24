@@ -26,6 +26,8 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <ApplicationServices/ApplicationServices.h>
 
+@import Sparkle;
+
 NSString *const TERMINAL_ARRANGEMENT_PROFILE_GUID = @"Hotkey Profile GUID";
 
 #define HKWLog DLog
@@ -449,6 +451,7 @@ NSString *const TERMINAL_ARRANGEMENT_PROFILE_GUID = @"Hotkey Profile GUID";
 #pragma mark - Private
 
 - (BOOL)shouldAutoHide {
+    DLog(@"shouldAutoHide called");
     if (_disableAutoHide) {
         DLog(@"Auto-hide temporarily disabled");
         return NO;
@@ -463,10 +466,24 @@ NSString *const TERMINAL_ARRANGEMENT_PROFILE_GUID = @"Hotkey Profile GUID";
         DLog(@"The key window does not auto-hide the hotkey window: %@", keyWindow);
         return NO;
     }
+
+    NSWindow *keyWindowElect = [[iTermApplication sharedApplication] it_windowBecomingKey];
+    DLog(@"keyWindowElect is %@", keyWindowElect);
+    if ([keyWindowElect respondsToSelector:@selector(autoHidesHotKeyWindow)] &&
+        ![keyWindowElect autoHidesHotKeyWindow]) {
+        DLog(@"The key window-elect does not auto-hide the hotkey window: %@", keyWindowElect);
+        return NO;
+    }
+
     NSWindowController *keyWindowController = [keyWindow windowController];
     if ([keyWindowController respondsToSelector:@selector(autoHidesHotKeyWindow)] &&
         ![keyWindowController autoHidesHotKeyWindow]) {
         DLog(@"The key window's controller does not auto-hide the hotkey window: %@", keyWindow);
+        return NO;
+    }
+    if (keyWindowController != nil &&
+        [[[NSBundle bundleForClass:keyWindowController.class] bundlePath] isEqualToString:[[NSBundle bundleForClass:[SUUpdater class]] bundlePath]]) {
+        DLog(@"The key window's controller appears to belong to Sparkle (it is %@), so don't auto-hide.", keyWindowController);
         return NO;
     }
 
@@ -512,6 +529,7 @@ NSString *const TERMINAL_ARRANGEMENT_PROFILE_GUID = @"Hotkey Profile GUID";
         return NO;
     }
 
+    DLog(@"YES - should auto hide");
     return YES;
 }
 

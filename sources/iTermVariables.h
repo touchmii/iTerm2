@@ -24,6 +24,7 @@ extern NSString *const iTermVariableKeyTabID;
 extern NSString *const iTermVariableKeyTabTmuxWindowTitle;
 extern NSString *const iTermVariableKeyTabTmuxWindowName;
 extern NSString *const iTermVariableKeyTabWindow;
+extern NSString *const iTermVariableKeyTabTitle;
 
 // If this window is a tmux client, this is the window number defined by
 // the tmux server. -1 if not a tmux client.
@@ -68,6 +69,7 @@ extern NSString *const iTermVariableKeyWindowTitleOverride;
 extern NSString *const iTermVariableKeyWindowID;
 extern NSString *const iTermVariableKeyWindowFrame;
 extern NSString *const iTermVariableKeyWindowStyle;
+extern NSString *const iTermVariableKeyWindowNumber;
 
 @protocol iTermObject;
 @class iTermVariables;

@@ -14,7 +14,9 @@
 #import "iTermStatusBarLayoutAlgorithm.h"
 #import "iTermStatusBarPlaceholderComponent.h"
 #import "iTermStatusBarSpringComponent.h"
+#import "iTermStatusBarUnreadCountController.h"
 #import "iTermStatusBarView.h"
+#import "iTermVariableScope.h"
 #import "NSArray+iTerm.h"
 #import "NSColor+iTerm.h"
 #import "NSImageView+iTerm.h"
@@ -49,6 +51,10 @@ const CGFloat iTermStatusBarHeight = 21;
     if (self) {
         _scope = scope;
         _layout = layout;
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(unreadCountDidChange:)
+                                                     name:iTermStatusBarUnreadCountDidChange
+                                                   object:nil];
     }
     return self;
 }
@@ -249,6 +255,17 @@ const CGFloat iTermStatusBarHeight = 21;
         [updatedContainerViews addObject:view];
     }
     _containerViews = updatedContainerViews;
+    NSString *const sessionID = [_scope valueForVariableName:iTermVariableKeySessionID] ?: @"";
+
+    [_containerViews enumerateObjectsUsingBlock:^(iTermStatusBarContainerView * _Nonnull view, NSUInteger idx, BOOL * _Nonnull stop) {
+        NSString *identifier = view.component.statusBarComponentIdentifier;
+        if (!identifier) {
+            [view setUnreadCount:0];
+            return;
+        }
+        [view setUnreadCount:[[iTermStatusBarUnreadCountController sharedInstance] unreadCountForComponentWithIdentifier:identifier
+                                                                                                               sessionID:sessionID]];
+    }];
     // setDelegate: may have side effects that expect _containerViews to be populated.
     for (id<iTermStatusBarComponent> component in components) {
         component.delegate = self;
@@ -340,6 +357,10 @@ const CGFloat iTermStatusBarHeight = 21;
     [self.delegate statusBarSetLayout:layout];
 }
 
+- (void)statusBarContainerViewDisableStatusBar:(iTermStatusBarContainerView *)sender {
+    [self.delegate statusBarDisable];
+}
+
 - (void)statusBarContainerViewConfigureStatusBar:(iTermStatusBarContainerView *)sender {
     [self.delegate statusBarOpenPreferencesToComponent:nil];
 }
@@ -348,6 +369,23 @@ const CGFloat iTermStatusBarHeight = 21;
     [self.delegate statusBarOpenPreferencesToComponent:component];
 }
 
+#pragma mark - Notifications
+
+- (void)unreadCountDidChange:(NSNotification *)notification {
+    NSString *const sessionID = [_scope valueForVariableName:iTermVariableKeySessionID] ?: @"";
+    [_containerViews enumerateObjectsUsingBlock:^(iTermStatusBarContainerView * _Nonnull view, NSUInteger idx, BOOL * _Nonnull stop) {
+        NSString *identifier = view.component.statusBarComponentIdentifier;
+        if (!identifier) {
+            [view setUnreadCount:0];
+            return;
+        }
+        if (![identifier isEqual:notification.object]) {
+            return;
+        }
+        [view setUnreadCount:[[iTermStatusBarUnreadCountController sharedInstance] unreadCountForComponentWithIdentifier:identifier
+                                                                                                               sessionID:sessionID]];
+    }];
+}
 @end
 
 NS_ASSUME_NONNULL_END

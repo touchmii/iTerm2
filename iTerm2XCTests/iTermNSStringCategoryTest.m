@@ -144,7 +144,7 @@
     [self assertString:@"\"foo bar\"" parsesAsShellCommandTo:@[ @"foo bar" ]];
     [self assertString:@"   \"foo bar\"   " parsesAsShellCommandTo:@[ @"foo bar" ]];
     [self assertString:@"   \"foo  bar\"   " parsesAsShellCommandTo:@[ @"foo  bar" ]];
-    [self assertString:@"   \"foo\\ bar\"   " parsesAsShellCommandTo:@[ @"foo bar" ]];
+    [self assertString:@"   \"foo\\ bar\"   " parsesAsShellCommandTo:@[ @"foo\\ bar" ]];
     [self assertString:@"   \"foo bar" parsesAsShellCommandTo:@[ @"foo bar" ]];
     [self assertString:@"\\\"foo bar\\\"" parsesAsShellCommandTo:@[ @"\"foo", @"bar\"" ]];
 
@@ -343,6 +343,13 @@
     XCTAssertEqualObjects(actual, expected);
 }
 
+- (void)testComponentsBySplittingStringWithQuotesAndBackslashEscaping_SingleQuotesWithEscapedLetter {
+    NSString *s = @"foo'\\q'bar";
+    NSArray<NSString *> *actual = [s componentsBySplittingStringWithQuotesAndBackslashEscaping:@{}];
+    NSArray<NSString *> *expected = @[ @"foo\\qbar" ];
+    XCTAssertEqualObjects(actual, expected);
+}
+
 - (void)testComponentsBySplittingStringWithQuotesAndBackslashEscaping_SingleQuotesWithSpace {
     NSString *s = @"foo' 'bar";
     NSArray<NSString *> *actual = [s componentsBySplittingStringWithQuotesAndBackslashEscaping:@{}];
@@ -358,9 +365,9 @@
 }
 
 - (void)testComponentsBySplittingStringWithQuotesAndBackslashEscaping_SingleQuotesWithEscapedSingleQuote {
-    NSString *s = @"foo'\\''bar";
+    NSString *s = @"foo'\\''bar'";
     NSArray<NSString *> *actual = [s componentsBySplittingStringWithQuotesAndBackslashEscaping:@{}];
-    NSArray<NSString *> *expected = @[ @"foo'bar" ];
+    NSArray<NSString *> *expected = @[ @"foo\\bar" ];
     XCTAssertEqualObjects(actual, expected);
 }
 
@@ -424,6 +431,13 @@
     NSString *s = @"  foo   bar  ";
     NSArray<NSString *> *actual = [s componentsBySplittingStringWithQuotesAndBackslashEscaping:@{}];
     NSArray<NSString *> *expected = @[ @"foo", @"bar" ];
+    XCTAssertEqualObjects(actual, expected);
+}
+
+- (void)testComponentsBySplittingStringWithQuotesAndBackslashEscaping_BackslashInQuotes {
+    NSString *s = @"\"foo\\ bar\" 'foo\\ bar'";
+    NSArray<NSString *> *actual = [s componentsBySplittingStringWithQuotesAndBackslashEscaping:@{}];
+    NSArray<NSString *> *expected = @[ @"foo\\ bar", @"foo\\ bar" ];
     XCTAssertEqualObjects(actual, expected);
 }
 
@@ -532,6 +546,31 @@
         [actual addObject:[iTermTuple tupleWithObject:substring andObject:@(isLiteral)]];
     }];
     XCTAssertEqualObjects(actual, expected);
+}
+
+- (void)testReplaceControlCharactersWithCaretLetter_Empty {
+    NSString *actual = [@"" stringByReplacingControlCharactersWithCaretLetter];
+    XCTAssertEqualObjects(actual, @"");
+}
+
+- (void)testReplaceControlCharactersWithCaretLetter_JustAControlCharacter {
+    NSString *actual = [[NSString stringWithFormat:@"%c", 1] stringByReplacingControlCharactersWithCaretLetter];
+    XCTAssertEqualObjects(actual, @"^A");
+}
+
+- (void)testReplaceControlCharactersWithCaretLetter_Backspace {
+    NSString *actual = [[NSString stringWithFormat:@"%c", 0x7f] stringByReplacingControlCharactersWithCaretLetter];
+    XCTAssertEqualObjects(actual, @"^?");
+}
+
+- (void)testReplaceControlCharactersWithCaretLetter_JustTwoControlCharacters {
+    NSString *actual = [[NSString stringWithFormat:@"%c%c", 1, 2] stringByReplacingControlCharactersWithCaretLetter];
+    XCTAssertEqualObjects(actual, @"^A^B");
+}
+
+- (void)testReplaceControlCharactersWithCaretLetter_MixOfRegularAndControlCharacters {
+    NSString *actual = [[NSString stringWithFormat:@"12%c34%c56", 1, 2] stringByReplacingControlCharactersWithCaretLetter];
+    XCTAssertEqualObjects(actual, @"12^A34^B56");
 }
 
 @end

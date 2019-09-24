@@ -28,6 +28,12 @@ Here are a collection of working scripts for you to crib from. While they are ca
 
 :doc:`gmtclock` - Demonstrates a status bar component that shows the current time in the GMT time zone.
 
+:doc:`diskspace` - Demonstrates a status bar component that updates itself periodically, showing the amount of free disk space.
+
+:doc:`unread` - Demonstrates a status bar component with an icon and an "unread count".
+
+:doc:`weather` - Demonstrates fetching a web page periodically and showing its data in a custom status bar component. Also demonstrates providing an icon for a custom status bar component.
+
 ----
 
 **Tmux**
@@ -53,6 +59,8 @@ Here are a collection of working scripts for you to crib from. While they are ca
 
 :doc:`tabtitle` - Demonstrates monitoring for the creation of a new tab. Also demonstrates prompting the user for a string and changing a tab title.
 
+:doc:`autoalert` - Demonstrates monitoring all sessions for long-running jobs. Also demonstrates posting notifications.
+
 ----
 
 **Profiles and Color Presets**
@@ -66,6 +74,8 @@ Here are a collection of working scripts for you to crib from. While they are ca
 :doc:`increase_font_size` — Demonstrates changing a session's font without updating the underlying profile.
 
 :doc:`change_default_profile` - Demonstrates changing the default profile.
+
+:doc:`setprofile` - Demonstrates changing a session's profile.
 
 ----
 

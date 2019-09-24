@@ -19,6 +19,7 @@ extern const CGFloat iTermStatusBarViewControllerIconWidth;
 - (void)statusBarContainerView:(iTermStatusBarContainerView *)sender configureComponent:(id<iTermStatusBarComponent>)component;
 - (void)statusBarContainerView:(iTermStatusBarContainerView *)sender hideComponent:(id<iTermStatusBarComponent>)component;
 - (void)statusBarContainerViewConfigureStatusBar:(iTermStatusBarContainerView *)sender;
+- (void)statusBarContainerViewDisableStatusBar:(iTermStatusBarContainerView *)sender;
 @end
 
 @interface iTermStatusBarContainerView : NSView
@@ -35,7 +36,8 @@ extern const CGFloat iTermStatusBarViewControllerIconWidth;
 @property (nonatomic, readonly) NSColor *backgroundColor;
 @property (nonatomic) CGFloat leftSeparatorOffset;
 @property (nonatomic) CGFloat rightSeparatorOffset;
-@property (nonatomic, strong, readonly) NSImageView *iconImageView;
+@property (nullable, nonatomic, strong, readonly) NSImageView *iconImageView;
+@property (nonatomic) NSInteger unreadCount;
 
 - (nullable instancetype)initWithComponent:(id<iTermStatusBarComponent>)component NS_DESIGNATED_INITIALIZER;
 

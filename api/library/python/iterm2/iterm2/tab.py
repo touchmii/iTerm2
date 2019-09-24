@@ -1,12 +1,21 @@
 """Provides a class that represents an iTerm2 tab."""
 
+import enum
 import iterm2.api_pb2
 import iterm2.app
+import iterm2.capabilities
 import iterm2.rpc
 import iterm2.session
 import iterm2
 import json
 import typing
+
+class NavigationDirection(enum.Enum):
+    """Cardinal directions."""
+    LEFT = "left"
+    RIGHT = "right"
+    ABOVE = "above"
+    BELOW = "below"
 
 class Tab:
     """Represents a tab.
@@ -31,6 +40,12 @@ class Tab:
     def update_session(self, session):
         """Replaces references to a session."""
         self.__root.update_session(session)
+
+    @property
+    def window(self) -> 'iterm2.Window':
+        """Returns the containing window."""
+        # Note: App sets get_window on Tab when it's created.
+        return Tab.get_window(self)
 
     @property
     def tmux_connection_id(self):
@@ -88,6 +103,10 @@ class Tab:
         return session
 
     async def async_select(self, order_window_front: bool=True) -> None:
+        """Deprecated in favor of `async_activate`."""
+        await async_activate(order_window_front)
+
+    async def async_activate(self, order_window_front: bool=True) -> None:
         """
         Selects this tab.
 
@@ -101,6 +120,24 @@ class Tab:
             True,
             order_window_front,
             tab_id=self.__tab_id)
+
+    async def async_select_pane_in_direction(self, direction: NavigationDirection) -> typing.Optional[str]:
+        """
+        Activates a split pane adjacent to the currently selected pane.
+        Requires iTerm2 version 3.3.2.
+
+        :param direction: Specifies the direction to move. For example, LEFT will cause the pane to the left of the currently active one.
+        :returns: The ID of the newly selected session ID, or None if there was no session in that direction.
+
+        :throws: :class:`~iterm2.rpc.RPCException` if something goes wrong.
+        """
+        if not iterm2.capabilities.supports_select_pane_in_direction(self.connection):
+            raise iterm2.capabilities.AppVersionTooOld()
+
+        invocation = iterm2.util.invocation_string(
+                "iterm2.select_pane_in_direction",
+                { "direction": direction.value })
+        await iterm2.rpc.async_invoke_method(self.connection, self.tab_id, invocation, -1)
 
     async def async_update_layout(self) -> None:
         """Adjusts the layout of the sessions in this tab.
@@ -130,7 +167,7 @@ class Tab:
 
         See the Scripting Fundamentals documentation for more information on user-defined variables.
 
-        :param name: The variable's name.
+        :param name: The variable's name. Must begin with `user.`.
         :param value: The new value to assign.
 
         :throws: :class:`RPCException` if something goes wrong.

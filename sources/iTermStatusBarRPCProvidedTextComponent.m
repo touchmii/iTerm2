@@ -119,6 +119,8 @@ static NSString *const iTermStatusBarRPCRegistrationRequestKey = @"registration 
     NSString *_errorMessage;  // Nil if the last evaluation was successful.
     NSDate *_dateOfLaunchToFix;
     NSString *_fullPath;
+    BOOL _computedIcon;
+    NSImage *_icon;
 }
 
 - (instancetype)initWithRegistrationRequest:(ITMRPCRegistrationRequest *)registrationRequest
@@ -176,8 +178,8 @@ static NSString *const iTermStatusBarRPCRegistrationRequestKey = @"registration 
     ITMRPCRegistrationRequest_RPCArgument *knobs = [[ITMRPCRegistrationRequest_RPCArgument alloc] init];
     knobs.name = @"knobs";
     knobs.path = @"__knobs";
-    return [iTermAPIHelper invocationWithName:_savedRegistrationRequest.latestStatusBarRequest.name
-                                     defaults:[defaults arrayByAddingObject:knobs]];
+    return [iTermAPIHelper invocationWithFullyQualifiedName:_savedRegistrationRequest.latestStatusBarRequest.it_fullyQualifiedName
+                                                   defaults:[defaults arrayByAddingObject:knobs]];
 }
 
 - (NSString *)statusBarComponentIdentifier {
@@ -210,6 +212,41 @@ static NSString *const iTermStatusBarRPCRegistrationRequestKey = @"registration 
 
 - (void)statusBarComponentUpdate {
     [self updateWithKnobValues:self.configuration[iTermStatusBarComponentConfigurationKeyKnobValues]];
+}
+
+- (nullable NSImage *)statusBarComponentIcon {
+    if (_savedRegistrationRequest.latestStatusBarRequest.statusBarComponentAttributes.iconsArray.count == 0) {
+        return nil;
+    }
+    if (_computedIcon) {
+        return _icon;
+    }
+    _computedIcon = YES;
+    __block NSSize sizeInPoints = NSZeroSize;
+    NSArray<NSBitmapImageRep *> *reps = [_savedRegistrationRequest.latestStatusBarRequest.statusBarComponentAttributes.iconsArray mapWithBlock:^id(ITMRPCRegistrationRequest_StatusBarComponentAttributes_Icon *proto) {
+        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:proto.data_p];
+        if (!rep) {
+            return nil;
+        }
+        if (proto.scale <= 0) {
+            return nil;
+        }
+        if (NSEqualSizes(NSZeroSize, sizeInPoints)) {
+            sizeInPoints = rep.size;
+            sizeInPoints.width = round(sizeInPoints.width / proto.scale);
+            sizeInPoints.height = round(sizeInPoints.height / proto.scale);
+        }
+        return rep;
+    }];
+    if (sizeInPoints.width <= 0 || sizeInPoints.height <= 0) {
+        return nil;
+    }
+    NSImage *image = [[NSImage alloc] initWithSize:sizeInPoints];
+    for (NSBitmapImageRep *rep in reps) {
+        [image addRepresentation:rep];
+    }
+    _icon = image;
+    return _icon;
 }
 
 - (iTermStatusBarComponentKnobType)knobTypeFromDescriptorType:(ITMRPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type)type {
@@ -487,11 +524,11 @@ static NSString *const iTermStatusBarRPCRegistrationRequestKey = @"registration 
 
 #pragma mark - iTermObject
 
-- (iTermBuiltInFunctions *)objectMethodRegistry {
+- (nullable iTermBuiltInFunctions *)objectMethodRegistry {
     return nil;
 }
 
-- (iTermVariableScope *)objectScope {
+- (nullable iTermVariableScope *)objectScope {
     return nil;
 }
 

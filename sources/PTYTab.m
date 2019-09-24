@@ -676,6 +676,7 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
             value = newName ?: @"";
         }
     }
+    [self.variablesScope setValue:value forVariableNamed:iTermVariableKeyTabTitle];
     [tabViewItem_ setLabel:value];  // PSM uses bindings to bind the label to its title
     [self.realParentWindow tabTitleDidChange:self];
 }
@@ -899,25 +900,25 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
 }
 
 - (NSColor *)flexibleViewColor {
-    if ([realParentWindow_ anyFullScreen]) {
+    if ([realParentWindow_ anyFullScreen] && [iTermAdvancedSettingsModel useBlackFillerColorForTmuxInFullScreen]) {
         return [NSColor blackColor];
-    } else {
-        NSColor *backgroundColor = [self.activeSession.colorMap colorForKey:kColorMapBackground];
-        CGFloat components[4];
-        [backgroundColor getComponents:components];
-        CGFloat mix;
-        if (backgroundColor.brightnessComponent < 0.5) {
-            mix = 1;
-        } else {
-            mix = 0;
-        }
-        const CGFloat a = 0.1;
-        for (int i = 0; i < 3; i++) {
-            components[i] = a * mix + (1 - a) * components[i];
-        }
-        const CGFloat alpha = self.realParentWindow.useTransparency ? (1.0 - self.activeSession.transparency) : 1.0;
-        return [NSColor colorWithCalibratedRed:components[0] green:components[1] blue:components[2] alpha:alpha];
     }
+
+    NSColor *backgroundColor = [self.activeSession.colorMap colorForKey:kColorMapBackground];
+    CGFloat components[4];
+    [backgroundColor getComponents:components];
+    CGFloat mix;
+    if (backgroundColor.brightnessComponent < 0.5) {
+        mix = 1;
+    } else {
+        mix = 0;
+    }
+    const CGFloat a = 0.1;
+    for (int i = 0; i < 3; i++) {
+        components[i] = a * mix + (1 - a) * components[i];
+    }
+    const CGFloat alpha = self.realParentWindow.useTransparency ? (1.0 - self.activeSession.transparency) : 1.0;
+    return [NSColor colorWithCalibratedRed:components[0] green:components[1] blue:components[2] alpha:alpha];
 }
 
 - (void)updateFlexibleViewColors {
@@ -3252,7 +3253,13 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
             [aSession.view setShowTitle:YES adjustScrollView:NO];
         }
     }
-
+    // You have to update the scrollbar style before calling -appendTab: or else the calculated size
+    // of the tmux client will be wrong in fullscreen when the system is configured for legacy scrollers.
+    const BOOL hasScrollbar = [term scrollbarShouldBeVisible];
+    const NSScrollerStyle style = [term scrollerStyle];
+    for (PTYSession *session in [theTab sessions]) {
+        [session setScrollBarVisible:hasScrollbar style:style];
+    }
     theTab.tmuxWindow = tmuxWindow;
     theTab->parseTree_ = parseTree;
 
@@ -4090,18 +4097,20 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
         return NULL;
     }
     NSArray *subviews = [split subviews];
-    int numSubviews = [subviews count];
-    int splitterIndex;
+    const NSInteger numSubviews = [subviews count];
+    NSInteger splitterIndex;
     if (subviewIndex + 1 == numSubviews) {
         splitterIndex = numSubviews - 2;
     } else {
         splitterIndex = subviewIndex;
     }
 
+    const CGFloat step = [self stepForMovementOfDividerIndex:splitterIndex ofSplitView:split];
+
     // Compute the new frames for the subview before and after the divider.
     // No other subviews are affected.
-    NSSize movement = NSMakeSize(horizontally ? direction : 0,
-                                 horizontally ? 0 : direction);
+    NSSize movement = NSMakeSize(horizontally ? direction * step : 0,
+                                 horizontally ? 0 : direction * step);
 
     NSView *before = subviews[splitterIndex];
     NSRect beforeFrame = before.frame;
@@ -4111,17 +4120,22 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
     // See if any constraint would be violated.
     const CGFloat proposed = horizontally ? NSMaxX(beforeFrame) : NSMaxY(beforeFrame);
 
-    CGFloat constraint = [self splitView:split
-                  constrainMinCoordinate:proposed
-                             ofSubviewAt:splitterIndex];
-    if (constraint > proposed) {
-        return NULL;
-    }
+    if (direction > 0) {
+        const CGFloat proposedMinusDivider = proposed - split.dividerThickness;
+        const CGFloat constraint = [self splitView:split
+                            constrainMaxCoordinate:proposedMinusDivider
+                                       ofSubviewAt:splitterIndex];
+        if (constraint < proposed) {
+            return NULL;
+        }
 
-    const CGFloat proposedMinusDivider = proposed - split.dividerThickness;
-    constraint = [self splitView:split constrainMaxCoordinate:proposedMinusDivider ofSubviewAt:splitterIndex];
-    if (constraint < proposed) {
-        return NULL;
+    } else {
+        const CGFloat constraint = [self splitView:split
+                            constrainMinCoordinate:proposed
+                                       ofSubviewAt:splitterIndex];
+        if (constraint > proposed) {
+            return NULL;
+        }
     }
 
     // It would be ok to move the divider. Return a block that updates views' frames.
@@ -5049,6 +5063,17 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
     }
 }
 
+- (CGFloat)stepForMovementOfDividerIndex:(NSInteger)dividerIndex
+                             ofSplitView:(NSSplitView *)splitView {
+    NSArray<NSView *> *subviews = [splitView subviews];
+    NSView *childBefore = subviews[dividerIndex];
+    NSView *childAfter = subviews[dividerIndex + 1];
+    CGFloat beforeStep = [self _recursiveStepSize:childBefore wantWidth:[splitView isVertical]];
+    CGFloat afterStep = [self _recursiveStepSize:childAfter wantWidth:[splitView isVertical]];
+    CGFloat step = MAX(beforeStep, afterStep);
+    return step;
+}
+
 // Make splitters jump by char widths/line heights. If there is a difference,
 // pick the largest on either side of the divider.
 - (CGFloat)splitView:(NSSplitView *)splitView
@@ -5064,12 +5089,9 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
         DLog(@"Have %@ subviews. Aborting.", @(subviews.count));
         return proposedPosition;
     }
-    NSView *childBefore = subviews[dividerIndex];
-    NSView *childAfter = subviews[dividerIndex + 1];
-    CGFloat beforeStep = [self _recursiveStepSize:childBefore wantWidth:[splitView isVertical]];
-    CGFloat afterStep = [self _recursiveStepSize:childAfter wantWidth:[splitView isVertical]];
-    CGFloat step = MAX(beforeStep, afterStep);
 
+    const CGFloat step = [self stepForMovementOfDividerIndex:dividerIndex ofSplitView:splitView];
+    NSView *const childBefore = splitView.subviews[dividerIndex];
     NSRect beforeRect = [childBefore frame];
     CGFloat originalPosition;
     if ([splitView isVertical]) {
@@ -5322,7 +5344,6 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
         return;
     }
 
-    
     [self updateTmuxTitleMonitor];
 }
 
@@ -5602,6 +5623,15 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
                                                    target:self
                                                    action:@selector(setTitleWithCompletion:title:)];
         [_methods registerFunction:method namespace:@"iterm2"];
+
+        method = [[iTermBuiltInMethod alloc] initWithName:@"select_pane_in_direction"
+                                            defaultValues:@{}
+                                                    types:@{ @"direction": [NSString class] }
+                                        optionalArguments:[NSSet set]
+                                                  context:iTermVariablesSuggestionContextSession
+                                                   target:self
+                                                   action:@selector(selectPaneInDirectionWithCompletion:direction:)];
+        [_methods registerFunction:method namespace:@"iterm2"];
     }
     return _methods;
 }
@@ -5610,6 +5640,33 @@ static void SetAgainstGrainDim(BOOL isVertical, NSSize *dest, CGFloat value) {
                          title:(NSString *)title {
     [self setTitleOverride:title];
     completion(nil, nil);
+}
+
+- (void)selectPaneInDirectionWithCompletion:(void (^)(id, NSError *))completion
+                                  direction:(NSString *)direction {
+    PTYSession *activeSession = [self activeSession];
+    PTYSession *session;
+    if ([direction isEqualToString:@"left"]) {
+        session = [self sessionLeftOf:activeSession];
+    } else if ([direction isEqualToString:@"right"]) {
+        session = [self sessionRightOf:activeSession];
+    } else if ([direction isEqualToString:@"above"]) {
+        session = [self sessionAbove:activeSession];
+    } else if ([direction isEqualToString:@"below"]) {
+        session = [self sessionBelow:activeSession];
+    } else {
+        NSError *error = [NSError errorWithDomain:@"com.iterm2.select-pane-in-direction"
+                                             code:0
+                                         userInfo:@{ NSLocalizedDescriptionKey: @"Invalid direction. Should be left, right, above or below." }];
+        completion(nil, error);
+        return;
+    }
+    if (!session) {
+        completion(nil, nil);
+        return;
+    }
+    [self setActiveSession:session];
+    completion(session.guid, nil);
 }
 
 - (iTermVariableScope *)objectScope {

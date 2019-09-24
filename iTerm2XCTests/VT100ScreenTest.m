@@ -564,7 +564,7 @@ NSLog(@"Known bug: %s should be true, but %s is.", #expressionThatShouldBeTrue, 
     return @"Default";
 }
 
-- (void)screenLogWorkingDirectoryAtLine:(int)line withDirectory:(NSString *)directory isSuitableForOldPWD:(BOOL)isSuitableForOldPWD {
+- (void)screenLogWorkingDirectoryAtLine:(int)line withDirectory:(NSString *)directory pushed:(BOOL)pushed {
     [dirlog_ addObject:@[ @(line), directory ? directory : [NSNull null] ]];
 }
 
@@ -822,10 +822,6 @@ NSLog(@"Known bug: %s should be true, but %s is.", #expressionThatShouldBeTrue, 
 - (void)screenPromptDidStartAtLine:(int)line {
 }
 
-- (BOOL)screenInTmuxMode {
-    return NO;
-}
-
 - (NSIndexSet *)selectionIndexesOnLine:(int)line
                    containingCharacter:(unichar)c
                                inRange:(NSRange)range {
@@ -906,6 +902,10 @@ NSLog(@"Known bug: %s should be true, but %s is.", #expressionThatShouldBeTrue, 
 
 - (void)screenSetPreferredProxyIcon:(NSString *)value {
 }
+
+- (void)screenDidDetectShell:(NSString *)shell {
+}
+
 
 #pragma mark - iTermSelectionDelegate
 

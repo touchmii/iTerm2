@@ -66,7 +66,6 @@ int kVT100ScreenMinRows = 2;
 static const int kDefaultScreenColumns = 80;
 static const int kDefaultScreenRows = 25;
 static const int kDefaultMaxScrollbackLines = 1000;
-static const int kDefaultTabstopWidth = 8;
 
 NSString * const kHighlightForegroundColor = @"kHighlightForegroundColor";
 NSString * const kHighlightBackgroundColor = @"kHighlightBackgroundColor";
@@ -676,10 +675,9 @@ static NSString *const kInlineFileInset = @"inset";  // NSValue of NSEdgeInsets
     }
 }
 
-- (void)restoreAlternateScreenFromTemporaryLineBuffer:(LineBuffer *)altScreenLineBuffer
-                                       realLineBuffer:(LineBuffer *)realLineBuffer
-                                              oldSize:(VT100GridSize)oldSize
-                                              newSize:(VT100GridSize)newSize {
+- (void)restorePrimaryGridWithLineBuffer:(LineBuffer *)realLineBuffer
+                                 oldSize:(VT100GridSize)oldSize
+                                 newSize:(VT100GridSize)newSize {
     primaryGrid_.size = newSize;
     [primaryGrid_ setCharsFrom:VT100GridCoordMake(0, 0)
                             to:VT100GridCoordMake(newSize.width - 1, newSize.height - 1)
@@ -697,36 +695,26 @@ static NSString *const kInlineFileInset = @"inset";  // NSValue of NSEdgeInsets
     [primaryGrid_ restoreScreenFromLineBuffer:realLineBuffer
                               withDefaultChar:[primaryGrid_ defaultChar]
                             maxLinesToRestore:MIN(oldSize.height, newSize.height)];
+}
+
+- (NSArray *)subSelectionsAfterRestoringPrimaryGridWithCopyOfAltGrid:(VT100Grid *)copyOfAltGrid
+                                                        linesMovedUp:(int)linesMovedUp
+                                                        toLineBuffer:(LineBuffer *)realLineBuffer
+                                                  subSelectionTuples:(NSArray *)altScreenSubSelectionTuples
+                                                originalLastPosition:(LineBufferPosition *)originalLastPos
+                                                             oldSize:(VT100GridSize)oldSize
+                                                             newSize:(VT100GridSize)newSize
+                                                          usedHeight:(int)usedHeight
+                                                 intervalTreeObjects:(NSArray *)altScreenNotes {
+    [self restorePrimaryGridWithLineBuffer:realLineBuffer
+                                   oldSize:oldSize
+                                   newSize:newSize];
 
     // Any onscreen notes in primary grid get moved to savedIntervalTree_.
     currentGrid_ = primaryGrid_;
     [self swapNotes];
     currentGrid_ = altGrid_;
-}
 
-- (NSArray *)subSelectionsAfterRestoringAlternateScreen:(VT100Grid *)copyOfAltGrid
-                                         fromLineBuffer:(LineBuffer *)altScreenLineBuffer
-                                           toLineBuffer:(LineBuffer *)realLineBuffer
-                                     subSelectionTuples:(NSArray *)altScreenSubSelectionTuples
-                                   originalLastPosition:(LineBufferPosition *)originalLastPos
-                                                oldSize:(VT100GridSize)oldSize
-                                                newSize:(VT100GridSize)newSize
-                                             usedHeight:(int)usedHeight
-                                    intervalTreeObjects:(NSArray *)altScreenNotes {
-    // In alternate screen mode, the screen contents move up when the screen gets smaller.
-    // For example, if your alt screen looks like this before:
-    //   abcd
-    //   ef..
-    // And then gets shrunk to 3 wide, it becomes
-    //   d..
-    //   ef.
-    // The "abc" line was lost, so "linesMovedUp" is 1. That's the number of lines at the top
-    // of the alt screen that were lost.
-    const int linesMovedUp = [altScreenLineBuffer numLinesWithWidth:currentGrid_.size.width];
-    [self restoreAlternateScreenFromTemporaryLineBuffer:altScreenLineBuffer
-                                         realLineBuffer:realLineBuffer
-                                                oldSize:oldSize
-                                                newSize:newSize];
     ///////////////////////////////////////
     // Create a cheap append-only copy of the line buffer and add the
     // screen to it. This sets up the current state so that if there is a
@@ -980,21 +968,30 @@ static NSString *const kInlineFileInset = @"inset";  // NSValue of NSEdgeInsets
     // Restore the screen contents that were pushed onto the linebuffer.
     [currentGrid_ restoreScreenFromLineBuffer:wasShowingAltScreen ? altScreenLineBuffer : linebuffer_
                               withDefaultChar:[currentGrid_ defaultChar]
-                            maxLinesToRestore:[linebuffer_ numLinesWithWidth:currentGrid_.size.width]];
+                            maxLinesToRestore:[wasShowingAltScreen ? altScreenLineBuffer : linebuffer_ numLinesWithWidth:currentGrid_.size.width]];
     DLog(@"After restoring screen from line buffer:\n%@", [self compactLineDumpWithHistoryAndContinuationMarksAndLineNumbers]);
 
     if (wasShowingAltScreen) {
         // If we're in the alternate screen, restore its contents from the temporary
         // linebuffer.
-        newSubSelections = [self subSelectionsAfterRestoringAlternateScreen:copyOfAltGrid
-                                                             fromLineBuffer:altScreenLineBuffer
-                                                               toLineBuffer:realLineBuffer
-                                                         subSelectionTuples:altScreenSubSelectionTuples
-                                                       originalLastPosition:originalLastPos
-                                                                    oldSize:oldSize
-                                                                    newSize:newSize
-                                                                 usedHeight:usedHeight
-                                                        intervalTreeObjects:altScreenNotes];
+        // In alternate screen mode, the screen contents move up when the screen gets smaller.
+        // For example, if your alt screen looks like this before:
+        //   abcd
+        //   ef..
+        // And then gets shrunk to 3 wide, it becomes
+        //   d..
+        //   ef.
+        // The "abc" line was lost, so "linesMovedUp" is 1. That's the number of lines at the top
+        // of the alt screen that were lost.
+        newSubSelections = [self subSelectionsAfterRestoringPrimaryGridWithCopyOfAltGrid:copyOfAltGrid
+                                                                            linesMovedUp:[altScreenLineBuffer numLinesWithWidth:currentGrid_.size.width]
+                                                                            toLineBuffer:realLineBuffer
+                                                                      subSelectionTuples:altScreenSubSelectionTuples
+                                                                    originalLastPosition:originalLastPos
+                                                                                 oldSize:oldSize
+                                                                                 newSize:newSize
+                                                                              usedHeight:usedHeight
+                                                                     intervalTreeObjects:altScreenNotes];
     } else {
         // Was showing primary grid. Fix up notes in the alt screen.
         [self updateAlternateScreenIntervalTreeForNewSize:newSize];
@@ -2123,7 +2120,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
     return coord;
 }
 
-- (void)setWorkingDirectory:(NSString *)workingDirectory onLine:(int)line isSuitableForOldPWD:(BOOL)isSuitableForOldPWD {
+- (void)setWorkingDirectory:(NSString *)workingDirectory onLine:(int)line pushed:(BOOL)pushed {
     DLog(@"setWorkingDirectory:%@ onLine:%d", workingDirectory, line);
     VT100WorkingDirectory *workingDirectoryObj = [[[VT100WorkingDirectory alloc] init] autorelease];
     if (!workingDirectory) {
@@ -2165,7 +2162,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
     }
     [delegate_ screenLogWorkingDirectoryAtLine:line
                                  withDirectory:workingDirectory
-                           isSuitableForOldPWD:isSuitableForOldPWD];
+                                        pushed:pushed];
 }
 
 - (VT100RemoteHost *)setRemoteHost:(NSString *)host user:(NSString *)user onLine:(int)line {
@@ -3150,7 +3147,12 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
         DLog(@"Don't have a remote host, so changing working directory");
         // TODO: There's a bug here where remote host can scroll off the end of history, causing the
         // working directory to come from PTYTask (which is what happens when nil is passed here).
-        [self setWorkingDirectory:nil onLine:[self lineNumberOfCursor] isSuitableForOldPWD:NO];
+        //
+        // NOTE: Even though this is kind of a pull, it happens at a good
+        // enough rate (not too common, not too rare when part of a prompt)
+        // that I'm comfortable calling it a push. I want it to do things like
+        // update the list of recently used directories.
+        [self setWorkingDirectory:nil onLine:[self lineNumberOfCursor] pushed:YES];
     } else {
         DLog(@"Already have a remote host so not updating working directory because of title change");
     }
@@ -3401,10 +3403,6 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
 
 - (void)terminalHandleTmuxInput:(VT100Token *)token {
     [delegate_ screenHandleTmuxInput:token];
-}
-
-- (BOOL)terminalInTmuxMode {
-    return [delegate_ screenInTmuxMode];
 }
 
 - (void)terminalSynchronizedUpdate:(BOOL)begin {
@@ -3673,11 +3671,6 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
     [self clearBuffer];
 }
 
-// NOTE: Call this only when you reasonably believe that the working directory will be kept
-// up-to-date (i.e., you expect future calls because this is a trigger or an escape sequence
-// from someone who ought to know what they're doing, like Shell Integration scripts).
-// It passes YES for isSuitableForOldPWD so this will override the "os magic" to get the pwd
-// forever.
 - (void)terminalCurrentDirectoryDidChangeTo:(NSString *)value {
     int cursorLine = [self numberOfLines] - [self height] + currentGrid_.cursorY;
     NSString *dir = value;
@@ -3687,8 +3680,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
     if (dir.length) {
         [delegate_ screenSetPreferredProxyIcon:nil]; // Clear current proxy icon if exists.
         BOOL willChange = ![dir isEqualToString:[self workingDirectoryOnLine:cursorLine]];
-        // Pass YES for isSuitableForOldPWD to treat this as proof that shell integration is used.
-        [self setWorkingDirectory:dir onLine:cursorLine isSuitableForOldPWD:YES];
+        [self setWorkingDirectory:dir onLine:cursorLine pushed:YES];
         if (willChange) {
             [delegate_ screenCurrentDirectoryDidChangeTo:dir];
         }
@@ -3712,8 +3704,12 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
     } else if (parts.count >= 4) {
         message = parts[0];
         length = [parts[1] intValue];
-        location.x = MIN(MAX(0, [parts[2] intValue]), location.x);
-        location.y = MIN(MAX(0, [parts[3] intValue]), location.y);
+        VT100GridCoord limit = {
+            .x = self.width - 1,
+            .y = self.height - 1
+        };
+        location.x = MIN(MAX(0, [parts[2] intValue]), limit.x);
+        location.y = MIN(MAX(0, [parts[3] intValue]), limit.y);
     }
     VT100GridCoord end = location;
     end.x += length;
@@ -3767,12 +3763,13 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
 }
 
 - (void)appendImageAtCursorWithName:(NSString *)name
-                              width:(int)width
+                              width:(int)requestedWidth
                               units:(VT100TerminalUnits)widthUnits
-                             height:(int)height
+                             height:(int)requestedHeight
                               units:(VT100TerminalUnits)heightUnits
                 preserveAspectRatio:(BOOL)preserveAspectRatio
-                              inset:(NSEdgeInsets)inset
+                            roundUp:(BOOL)roundUp
+                              inset:(NSEdgeInsets)requestedInset
                               image:(NSImage *)nativeImage
                                data:(NSData *)data {
     iTermImage *image;
@@ -3801,36 +3798,53 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
 
     BOOL needsWidth = NO;
     NSSize cellSize = [delegate_ screenCellSize];
+    CGFloat requestedWidthInPoints = 0;
+    int width = requestedWidth;
     switch (widthUnits) {
         case kVT100TerminalUnitsPixels:
-            width = ceil((double)width / cellSize.width);
+            width = ceil((double)requestedWidth / cellSize.width);
+            requestedWidthInPoints = requestedWidth;
             break;
 
-        case kVT100TerminalUnitsPercentage:
-            width = ceil((double)[self width] * (double)MAX(MIN(100, width), 0) / 100.0);
+        case kVT100TerminalUnitsPercentage: {
+            const double fraction = (double)MAX(MIN(100, requestedWidth), 0) / 100.0;
+            width = ceil((double)[self width] * fraction);
+            requestedWidthInPoints = self.width * cellSize.width * fraction;
             break;
+        }
 
         case kVT100TerminalUnitsCells:
+            width = requestedWidth;
+            requestedWidthInPoints = width * cellSize.width;
             break;
 
         case kVT100TerminalUnitsAuto:
             if (heightUnits == kVT100TerminalUnitsAuto) {
                 width = ceil((double)scaledSize.width / cellSize.width);
+                requestedWidthInPoints = width * cellSize.width;
             } else {
                 needsWidth = YES;
             }
             break;
     }
+
+    int height = requestedHeight;
+    CGFloat requestedHeightInPoints = 0;
     switch (heightUnits) {
         case kVT100TerminalUnitsPixels:
-            height = ceil((double)height / cellSize.height);
+            height = ceil((double)requestedHeight / cellSize.height);
+            requestedHeightInPoints = requestedHeight;
             break;
 
-        case kVT100TerminalUnitsPercentage:
-            height = ceil((double)[self height] * (double)MAX(MIN(100, height), 0) / 100.0);
+        case kVT100TerminalUnitsPercentage: {
+            const double fraction = (double)MAX(MIN(100, requestedHeight), 0) / 100.0;
+            height = ceil((double)[self height] * fraction);
+            requestedHeightInPoints = self.height * cellSize.height * fraction;
             break;
-
+        }
         case kVT100TerminalUnitsCells:
+            height = requestedHeight;
+            requestedHeightInPoints = requestedHeight * cellSize.height;
             break;
 
         case kVT100TerminalUnitsAuto:
@@ -3840,13 +3854,20 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
                 double aspectRatio = scaledSize.width / scaledSize.height;
                 height = ((double)(width * cellSize.width) / aspectRatio) / cellSize.height;
             }
+            requestedHeightInPoints = height * cellSize.height;
             break;
     }
 
     if (needsWidth) {
         double aspectRatio = scaledSize.width / scaledSize.height;
         width = ((double)(height * cellSize.height) * aspectRatio) / cellSize.width;
+        requestedWidthInPoints = width * cellSize.width;
     }
+
+    BOOL fullAuto = (widthUnits == kVT100TerminalUnitsAuto &&
+                     heightUnits == kVT100TerminalUnitsAuto &&
+                     width >= 1 &&
+                     height >= 1);
 
     width = MAX(1, width);
     height = MAX(1, height);
@@ -3857,6 +3878,9 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
         double scale = maxWidth / (double)width;
         width = self.width;
         height *= scale;
+        fullAuto = NO;
+        requestedWidthInPoints = width * cellSize.width;
+        requestedHeightInPoints = height * cellSize.height;
     }
 
     // Height is capped at 255 because only 8 bits are used to represent the line number of a cell
@@ -3866,18 +3890,37 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
         double scale = (double)height / maxHeight;
         height = maxHeight;
         width *= scale;
+        fullAuto = NO;
+        requestedWidthInPoints = width * cellSize.width;
+        requestedHeightInPoints = height * cellSize.height;
     }
 
     // Allocate cells for the image.
     // TODO: Support scroll regions.
-    int xOffset = self.cursorX - 1;
-    int screenWidth = currentGrid_.size.width;
+
+    NSEdgeInsets inset = requestedInset;
+    {
+        // Tweak the insets to get the exact size the user requested.
+        if (requestedWidthInPoints < width * cellSize.width) {
+            inset.right += (width * cellSize.width - requestedWidthInPoints);
+        }
+        if (requestedHeightInPoints < height * cellSize.height) {
+            inset.bottom += (height * cellSize.height - requestedHeightInPoints);
+        }
+    }
     NSEdgeInsets fractionalInset = {
         .left = MAX(inset.left / cellSize.width, 0),
         .top = MAX(inset.top / cellSize.height, 0),
         .right = MAX(inset.right / cellSize.width, 0),
         .bottom = MAX(inset.bottom / cellSize.height, 0)
     };
+    if (!roundUp && fullAuto) {
+        // Pick an inset that preserves the exact dimensions of the original image.
+        fractionalInset = [iTermImageInfo fractionalInsetsForPreservedAspectRatioWithDesiredSize:scaledSize
+                                                                                    forImageSize:image.size
+                                                                                        cellSize:cellSize
+                                                                                   numberOfCells:NSMakeSize(width, height)];
+    }
     screen_char_t c = ImageCharForNewImage(name,
                                            width,
                                            height,
@@ -3886,6 +3929,8 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
     iTermImageInfo *imageInfo = GetImageInfo(c.code);
     imageInfo.broken = isBroken;
     DLog(@"Append %d rows of image characters with %d columns. The value of c.image is %@", height, width, @(c.image));
+    const int xOffset = self.cursorX - 1;
+    const int screenWidth = currentGrid_.size.width;
     for (int y = 0; y < height; y++) {
         if (y > 0) {
             [self linefeed];
@@ -3898,7 +3943,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
                                 toChar:c];
         }
     }
-    currentGrid_.cursorX = currentGrid_.cursorX + width + 1;
+    currentGrid_.cursorX = currentGrid_.cursorX + width;
 
     // Add a mark after the image. When the mark gets freed, it will release the image's memory.
     SetDecodedImage(c.code, image, data);
@@ -3937,6 +3982,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
                                height:0
                                 units:kVT100TerminalUnitsAuto
                   preserveAspectRatio:YES
+                              roundUp:NO
                                 inset:NSEdgeInsetsZero
                                 image:nil
                                  data:data];
@@ -3953,6 +3999,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
                                    height:[inlineFileInfo_[kInlineFileHeight] intValue]
                                     units:(VT100TerminalUnits)[inlineFileInfo_[kInlineFileHeightUnits] intValue]
                       preserveAspectRatio:[inlineFileInfo_[kInlineFilePreserveAspectRatio] boolValue]
+                                  roundUp:YES
                                     inset:[inlineFileInfo_[kInlineFileInset] futureEdgeInsetsValue]
                                     image:nil
                                      data:data];
@@ -4310,6 +4357,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
     } else {
         DLog(@"No last command mark found.");
     }
+    [delegate_ screenCommandDidExitWithCode:returnCode];
 }
 
 - (void)terminalFinalTermCommand:(NSArray *)argv {
@@ -4725,7 +4773,8 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
 {
     [tabStops_ removeAllObjects];
     const int kInitialTabWindow = 1000;
-    for (int i = 0; i < kInitialTabWindow; i += kDefaultTabstopWidth) {
+    const int width = [iTermAdvancedSettingsModel defaultTabStopWidth];
+    for (int i = 0; i < kInitialTabWindow; i += width) {
         [tabStops_ addObject:[NSNumber numberWithInt:i]];
     }
 }
@@ -5520,8 +5569,10 @@ static void SwapInt(int *a, int *b) {
         currentGrid_.cursorY = linesRestored + 1;
         currentGrid_.cursorX = 0;
     }
+    BOOL addedBanner = NO;
     if (includeRestorationBanner && [iTermAdvancedSettingsModel showSessionRestoredBanner]) {
         [self appendSessionRestoredBanner];
+        addedBanner = YES;
     }
 
     // Reduce line buffer's max size to not include the grid height. This is its final state.
@@ -5573,7 +5624,11 @@ static void SwapInt(int *a, int *b) {
         _lastCommandOutputRange = [screenState[kScreenStateLastCommandOutputRangeKey] gridAbsCoordRange];
         _shellIntegrationInstalled = [screenState[kScreenStateShellIntegrationInstalledKey] boolValue];
 
+        VT100GridCoord savedCursor = primaryGrid_.cursor;
         [primaryGrid_ setStateFromDictionary:screenState[kScreenStatePrimaryGridStateKey]];
+        if (addedBanner && currentGrid_.preferredCursorPosition.x < 0 && currentGrid_.preferredCursorPosition.y < 0) {
+            primaryGrid_.cursor = savedCursor;
+        }
         [altGrid_ setStateFromDictionary:screenState[kScreenStateAlternateGridStateKey]];
     }
 }

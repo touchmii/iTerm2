@@ -100,6 +100,9 @@
     [self recordUseOfNonterminalVariableNamed:iTermVariableKeyTabCurrentSession
                                     inContext:iTermVariablesSuggestionContextTab
                              leadingToContext:iTermVariablesSuggestionContextSession];
+    [self recordUseOfNonterminalVariableNamed:iTermVariableKeyTabTitle
+                                    inContext:iTermVariablesSuggestionContextTab
+                             leadingToContext:iTermVariablesSuggestionContextSession];
 
     // Window context
     [self recordUseOfVariableNamed:iTermVariableKeyWindowTitleOverrideFormat
@@ -114,6 +117,8 @@
     [self recordUseOfVariableNamed:iTermVariableKeyWindowFrame
                          inContext:iTermVariablesSuggestionContextWindow];
     [self recordUseOfVariableNamed:iTermVariableKeyWindowStyle
+                         inContext:iTermVariablesSuggestionContextWindow];
+    [self recordUseOfVariableNamed:iTermVariableKeyWindowNumber
                          inContext:iTermVariablesSuggestionContextWindow];
 
     // App context

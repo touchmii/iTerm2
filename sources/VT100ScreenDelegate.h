@@ -124,9 +124,6 @@
 // Handle a line of input in tmux mode in the token's string.
 - (void)screenHandleTmuxInput:(VT100Token *)token;
 
-// Are we in tmux mode?
-- (BOOL)screenInTmuxMode;
-
 // Returns if ambiguous characters are treated as fullwidth.
 - (BOOL)screenShouldTreatAmbiguousCharsAsDoubleWidth;
 
@@ -236,13 +233,14 @@
 // FinalTerm stuff
 - (void)screenCommandDidChangeWithRange:(VT100GridCoordRange)range;
 - (void)screenCommandDidEndWithRange:(VT100GridCoordRange)range;
+- (void)screenCommandDidExitWithCode:(int)code;
 - (BOOL)screenShouldPlacePromptAtFirstColumn;
 
 - (NSString *)screenProfileName;
 
 - (void)screenLogWorkingDirectoryAtLine:(int)line
                           withDirectory:(NSString *)directory
-                    isSuitableForOldPWD:(BOOL)isSuitableForOldPWD;
+                                 pushed:(BOOL)pushed;
 
 - (void)screenSuggestShellIntegrationUpgrade;
 - (void)screenDidDetectShell:(NSString *)shell;

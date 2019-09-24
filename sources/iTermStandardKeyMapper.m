@@ -68,10 +68,20 @@
     NSString *const characters = event.characters;
     const unichar character = characters.length > 0 ? [characters characterAtIndex:0] : 0;
     const BOOL shiftPressed = !!(event.it_modifierFlags & NSEventModifierFlagShift);
-    if (character == '/' && shiftPressed) {
+
+    if (character == '|') {
+        // This is necessary to handle Japanese keyboards correctly. Pressing Control+backslash
+        // generates characters=@"|" and charactersIgnoringModifiers=@"¥". This code path existed
+        // in iTerm 0.1.
+        DLog(@"C-backslash");
+        return 28;  // Control-backslash
+    } else if (character == '/' && shiftPressed) {
+        // This was in the original iTerm code. It's the normal path for US keyboards for ^-?.
+        DLog(@"C-?");
         return 127;
     }
 
+    DLog(@"Checking characterIgnoringModifiers %@", @(characterIgnoringModifiers));
     switch (characterIgnoringModifiers) {
         case ' ':
         case '2':

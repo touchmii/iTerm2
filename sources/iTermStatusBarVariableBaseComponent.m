@@ -7,6 +7,7 @@
 
 #import "iTermStatusBarVariableBaseComponent.h"
 
+#import "iTermLocalHostNameGuesser.h"
 #import "iTermShellHistoryController.h"
 #import "iTermVariableScope.h"
 #import "iTermVariableReference.h"
@@ -114,11 +115,23 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+static NSString *const iTermStatusBarHostnameComponentAbbreviateLocalhost = @"abbreviate-localhost";
+
 @implementation iTermStatusBarHostnameComponent
 
 - (instancetype)initWithConfiguration:(NSDictionary<iTermStatusBarComponentConfigurationKey, id> *)configuration
                                 scope:(nullable iTermVariableScope *)scope {
     return [super initWithPath:@"hostname" configuration:configuration scope:scope];
+}
+
+- (NSArray<iTermStatusBarComponentKnob *> *)statusBarComponentKnobs {
+    iTermStatusBarComponentKnob *abbreviateLocalhostKnob =
+    [[iTermStatusBarComponentKnob alloc] initWithLabelText:@"localhost replacement"
+                                                      type:iTermStatusBarComponentKnobTypeText
+                                               placeholder:@"Enter replacement text for localhost"
+                                              defaultValue:@""
+                                                       key:iTermStatusBarHostnameComponentAbbreviateLocalhost];
+    return [@[ abbreviateLocalhostKnob ] arrayByAddingObjectsFromArray:[super statusBarComponentKnobs]];
 }
 
 - (NSImage *)statusBarComponentIcon {
@@ -138,6 +151,16 @@ NS_ASSUME_NONNULL_BEGIN
     return @"example.com";
 }
 
+- (nullable NSArray<NSString *> *)stringVariants {
+    NSDictionary *knobValues = self.configuration[iTermStatusBarComponentConfigurationKeyKnobValues];
+    NSString *abbreviation = [NSString castFrom:knobValues[iTermStatusBarHostnameComponentAbbreviateLocalhost]];
+    if (abbreviation.length &&
+        [[[iTermLocalHostNameGuesser sharedInstance] name] isEqualToString:self.cached]) {
+        return @[ abbreviation ];
+    }
+    return [super stringVariants];
+}
+
 - (nullable NSString *)stringByCompressingString:(NSString *)source {
     NSMutableArray<NSString *> *parts = [[source componentsSeparatedByString:@"."] mutableCopy];
     __block NSString *replacement = nil;
@@ -150,7 +173,7 @@ NS_ASSUME_NONNULL_BEGIN
     if (index == NSNotFound) {
         return nil;
     }
-    parts[index] = replacement;
+    parts[index] = replacement ?: @"";
     return [parts componentsJoinedByString:@"."];
 }
 
